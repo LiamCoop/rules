@@ -18,7 +18,7 @@ type Engine struct {
 	mu       sync.RWMutex
 }
 
-// NewEngine creates a new rules engine
+// NewEngine creates a new rules engine with a default CEL environment
 // Satisfies REQ-ENGINE-001: Engine constructor
 // Satisfies REQ-COMPILE-001: Creates CEL environment
 // Satisfies REQ-COMPILE-006: Compiles all active rules on initialization
@@ -33,6 +33,12 @@ func NewEngine(store RuleStore) (*Engine, error) {
 		return nil, fmt.Errorf("failed to create CEL environment: %w", err)
 	}
 
+	return NewEngineWithEnv(env, store)
+}
+
+// NewEngineWithEnv creates a new rules engine with a custom CEL environment
+// This allows multi-tenant deployments to use schema-specific environments
+func NewEngineWithEnv(env *cel.Env, store RuleStore) (*Engine, error) {
 	en := &Engine{
 		env:      env,
 		store:    store,
