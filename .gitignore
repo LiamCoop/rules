@@ -1,0 +1,35 @@
+# Environment variables
+.env
+
+# Test coverage
+coverage.out
+coverage-integration.out
+coverage.html
+coverage-integration.html
+
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

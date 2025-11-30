@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 	"github.com/liamcoop/rules/multitenantengine"
 	"github.com/liamcoop/rules/rules"
 	_ "github.com/lib/pq"
@@ -36,6 +37,10 @@ func NewServer(databaseURL string) (*Server, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
+	return NewServerWithDB(db)
+}
+
+func NewServerWithDB(db *sql.DB) (*Server, error) {
 	// Create engine manager
 	engineManager := multitenantengine.NewMultiTenantEngineManager(db)
 
@@ -81,7 +86,8 @@ func (s *Server) setupRoutes() {
 
 		r.Route("/{tenantId}", func(r chi.Router) {
 			// Schema management
-			r.Post("/schema", s.handleUpdateSchema)
+			r.Post("/schema", s.handleCreateSchema)
+			r.Put("/schema", s.handleUpdateSchema)
 			r.Get("/schema", s.handleGetSchema)
 
 			// Rule management
@@ -247,6 +253,80 @@ func (s *Server) handleCreateTenant(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Create schema handler
+func (s *Server) handleCreateSchema(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantId")
+
+	var req struct {
+		Definition multitenantengine.Schema `json:"definition"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body", err)
+		return
+	}
+
+	if req.Definition == nil {
+		respondError(w, http.StatusBadRequest, "definition is required", nil)
+		return
+	}
+
+	// Check if tenant exists
+	var exists bool
+	err := s.db.QueryRow("SELECT EXISTS(SELECT 1 FROM tenants WHERE id = $1)", tenantID).Scan(&exists)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to check tenant", err)
+		return
+	}
+	if !exists {
+		respondError(w, http.StatusNotFound, "tenant not found", nil)
+		return
+	}
+
+	// Check if schema already exists
+	var schemaExists bool
+	err = s.db.QueryRow("SELECT EXISTS(SELECT 1 FROM schemas WHERE tenant_id = $1)", tenantID).Scan(&schemaExists)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to check schema", err)
+		return
+	}
+	if schemaExists {
+		respondError(w, http.StatusConflict, "schema already exists, use PUT to update", nil)
+		return
+	}
+
+	// Create schema in database
+	schemaJSON, err := json.Marshal(req.Definition)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to marshal schema", err)
+		return
+	}
+
+	var version int
+	err = s.db.QueryRow(`
+		INSERT INTO schemas (tenant_id, version, definition, active, created_at)
+		VALUES ($1, 1, $2, true, NOW())
+		RETURNING version
+	`, tenantID, schemaJSON).Scan(&version)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to create schema", err)
+		return
+	}
+
+	// Load tenant engine
+	err = s.engineManager.CreateTenant(tenantID, req.Definition)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load tenant engine", err)
+		return
+	}
+
+	respondJSON(w, http.StatusCreated, map[string]any{
+		"version":    version,
+		"status":     "active",
+		"definition": req.Definition,
+	})
+}
+
 // Update schema handler
 func (s *Server) handleUpdateSchema(w http.ResponseWriter, r *http.Request) {
 	tenantID := chi.URLParam(r, "tenantId")
@@ -267,17 +347,23 @@ func (s *Server) handleUpdateSchema(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return success with compiled rule count
-	engine, _ := s.engineManager.GetEngine(tenantID)
-	store := rules.NewPostgresRuleStore(s.db, tenantID)
-	activeRules, _ := store.ListActive()
+	// Get the new schema version
+	var version int
+	var schemaJSON []byte
+	err = s.db.QueryRow(`
+		SELECT version, definition FROM schemas
+		WHERE tenant_id = $1 AND active = true
+	`, tenantID).Scan(&version, &schemaJSON)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to get schema version", err)
+		return
+	}
 
 	respondJSON(w, http.StatusOK, map[string]any{
-		"status":          "active",
-		"rulesRecompiled": len(activeRules),
+		"version":    version,
+		"status":     "active",
+		"definition": req.Definition,
 	})
-
-	_ = engine // Silence unused warning
 }
 
 // Get schema handler
@@ -489,8 +575,7 @@ func respondError(w http.ResponseWriter, status int, message string, err error) 
 }
 
 func generateUUID() string {
-	// Simple UUID generation - in production, use github.com/google/uuid
-	return fmt.Sprintf("%d-%d", time.Now().UnixNano(), os.Getpid())
+	return uuid.New().String()
 }
 
 func main() {
