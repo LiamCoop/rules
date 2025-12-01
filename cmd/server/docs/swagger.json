@@ -1,0 +1,365 @@
+{
+    "schemes": [
+        "http"
+    ],
+    "swagger": "2.0",
+    "info": {
+        "description": "A multi-tenant rules engine with dynamic schemas and CEL rule evaluation\n\n## Features\n- Multi-tenant support with isolated data\n- Dynamic schema definition per tenant\n- CEL (Common Expression Language) rule engine\n- Real-time rule evaluation\n- Zero-downtime schema updates\n\n## Supported Data Types\n- int, int64, float64, string, bool, bytes, timestamp, duration\n\n## Authentication\nNot yet implemented (planned for production)",
+        "title": "Multi-Tenant Rules Engine API",
+        "contact": {
+            "name": "API Support",
+            "email": "support@example.com"
+        },
+        "license": {
+            "name": "MIT",
+            "url": "https://opensource.org/licenses/MIT"
+        },
+        "version": "1.0"
+    },
+    "host": "localhost:8080",
+    "basePath": "/",
+    "paths": {
+        "/api/v1/evaluate": {
+            "post": {
+                "description": "Evaluate a tenant's rules against provided facts. Returns which rules matched.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "evaluation"
+                ],
+                "summary": "Evaluate rules against facts",
+                "parameters": [
+                    {
+                        "description": "Evaluation request with tenant ID, facts, and optional rule IDs",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/EvaluateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/EvaluateResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request or facts don't match schema",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Tenant not found",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Evaluation error",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/health": {
+            "get": {
+                "description": "Check if the service and database are healthy",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "health"
+                ],
+                "summary": "Health check",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/HealthResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/tenants": {
+            "post": {
+                "description": "Create a new tenant in the system",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tenants"
+                ],
+                "summary": "Create a new tenant",
+                "parameters": [
+                    {
+                        "description": "Tenant details",
+                        "name": "tenant",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/CreateTenantRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/TenantResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/tenants/{tenantId}/schema": {
+            "post": {
+                "description": "Create a new schema definition for a tenant. Can only be called once per tenant. See validation rules in documentation.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "schemas"
+                ],
+                "summary": "Create a schema for a tenant",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Tenant ID",
+                        "name": "tenantId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Schema definition",
+                        "name": "schema",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/CreateSchemaRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/SchemaResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid schema - see validation rules",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Tenant not found",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Schema already exists",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "CreateSchemaRequest": {
+            "type": "object",
+            "required": [
+                "definition"
+            ],
+            "properties": {
+                "definition": {
+                    "$ref": "#/definitions/multitenantengine.Schema"
+                }
+            }
+        },
+        "CreateTenantRequest": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "example": "Acme Corp"
+                }
+            }
+        },
+        "ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string",
+                    "example": "validation failed: schema cannot be empty"
+                }
+            }
+        },
+        "EvaluateRequest": {
+            "type": "object",
+            "required": [
+                "facts",
+                "tenantId"
+            ],
+            "properties": {
+                "facts": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "rules": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "rule-123",
+                        "rule-456"
+                    ]
+                },
+                "tenantId": {
+                    "type": "string",
+                    "example": "123e4567-e89b-12d3-a456-426614174000"
+                }
+            }
+        },
+        "EvaluateResponse": {
+            "type": "object",
+            "properties": {
+                "evaluationTime": {
+                    "type": "string",
+                    "example": "2.3ms"
+                },
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/EvaluationResultResponse"
+                    }
+                }
+            }
+        },
+        "EvaluationResultResponse": {
+            "type": "object",
+            "properties": {
+                "Error": {
+                    "type": "string"
+                },
+                "Matched": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "RuleID": {
+                    "type": "string",
+                    "example": "rule-123"
+                },
+                "RuleName": {
+                    "type": "string",
+                    "example": "Adult User Check"
+                },
+                "Trace": {
+                    "type": "object",
+                    "additionalProperties": true
+                }
+            }
+        },
+        "HealthResponse": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "example": "ok"
+                }
+            }
+        },
+        "SchemaResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string",
+                    "example": "2024-01-15T10:30:00Z"
+                },
+                "definition": {
+                    "$ref": "#/definitions/multitenantengine.Schema"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "active"
+                },
+                "version": {
+                    "type": "integer",
+                    "example": 1
+                }
+            }
+        },
+        "TenantResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string",
+                    "example": "2024-01-15T10:30:00Z"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "123e4567-e89b-12d3-a456-426614174000"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Acme Corp"
+                },
+                "updated_at": {
+                    "type": "string",
+                    "example": "2024-01-15T10:30:00Z"
+                }
+            }
+        },
+        "multitenantengine.Schema": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "object",
+                "additionalProperties": {
+                    "type": "string"
+                }
+            }
+        }
+    }
+}

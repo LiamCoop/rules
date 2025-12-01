@@ -58,13 +58,19 @@ func NewEngineWithEnv(env *cel.Env, store RuleStore) (*Engine, error) {
 // Satisfies REQ-COMPILE-004: Performs type checking
 // Satisfies REQ-COMPILE-005: Caches compiled programs
 // Satisfies REQ-COMPILE-007: Enables tracing with OptTrackState
+// Satisfies REQ-SEC-001: Applies cost limit to prevent runaway expressions
 func (en *Engine) CompileRule(ruleID, expression string) error {
 	ast, issues := en.env.Compile(expression)
 	if issues != nil && issues.Err() != nil {
 		return fmt.Errorf("compile error: %w", issues.Err())
 	}
 
-	prog, err := en.env.Program(ast, cel.EvalOptions(cel.OptTrackState))
+	// REQ-SEC-001: Apply cost limit and enable tracking
+	// Cost limit of 1,000,000 prevents resource exhaustion from malicious/complex expressions
+	prog, err := en.env.Program(ast,
+		cel.EvalOptions(cel.OptTrackState),
+		cel.CostLimit(1000000),
+	)
 	if err != nil {
 		return fmt.Errorf("program creation error: %w", err)
 	}

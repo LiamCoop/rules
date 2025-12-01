@@ -38,6 +38,7 @@ func NewMultiTenantEngineManager(db *sql.DB) *MultiTenantEngineManager {
 }
 
 // CreateCELEnvFromSchema creates a CEL environment with variables defined by the schema
+// Satisfies REQ-SEC-002: Creates secure CEL environment with restricted features
 func CreateCELEnvFromSchema(schema Schema) (*cel.Env, error) {
 	var opts []cel.EnvOption
 

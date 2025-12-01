@@ -18,7 +18,37 @@ import (
 	"github.com/liamcoop/rules/multitenantengine"
 	"github.com/liamcoop/rules/rules"
 	_ "github.com/lib/pq"
+	httpSwagger "github.com/swaggo/http-swagger"
+
+	_ "github.com/liamcoop/rules/cmd/server/docs" // Swagger docs
 )
+
+// @title Multi-Tenant Rules Engine API
+// @version 1.0
+// @description A multi-tenant rules engine with dynamic schemas and CEL rule evaluation
+// @description
+// @description ## Features
+// @description - Multi-tenant support with isolated data
+// @description - Dynamic schema definition per tenant
+// @description - CEL (Common Expression Language) rule engine
+// @description - Real-time rule evaluation
+// @description - Zero-downtime schema updates
+// @description
+// @description ## Supported Data Types
+// @description - int, int64, float64, string, bool, bytes, timestamp, duration
+// @description
+// @description ## Authentication
+// @description Not yet implemented (planned for production)
+//
+// @contact.name API Support
+// @contact.email support@example.com
+//
+// @license.name MIT
+// @license.url https://opensource.org/licenses/MIT
+//
+// @host localhost:8080
+// @BasePath /
+// @schemes http
 
 type Server struct {
 	db            *sql.DB
@@ -73,6 +103,11 @@ func (s *Server) setupRoutes() {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60 * time.Second))
 
+	// Swagger documentation
+	r.Get("/swagger/*", httpSwagger.Handler(
+		httpSwagger.URL("http://localhost:8080/swagger/doc.json"),
+	))
+
 	// Health check
 	r.Get("/api/v1/health", s.handleHealth)
 
@@ -106,7 +141,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.router.ServeHTTP(w, r)
 }
 
-// Health check handler
+// handleHealth godoc
+// @Summary Health check
+// @Description Check if the service and database are healthy
+// @Tags health
+// @Produce json
+// @Success 200 {object} HealthResponse
+// @Failure 503 {object} ErrorResponse
+// @Router /api/v1/health [get]
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if err := s.db.Ping(); err != nil {
 		respondJSON(w, http.StatusServiceUnavailable, map[string]string{
@@ -122,7 +164,18 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Evaluation handler
+// handleEvaluate godoc
+// @Summary Evaluate rules against facts
+// @Description Evaluate a tenant's rules against provided facts. Returns which rules matched.
+// @Tags evaluation
+// @Accept json
+// @Produce json
+// @Param request body EvaluateRequest true "Evaluation request with tenant ID, facts, and optional rule IDs"
+// @Success 200 {object} EvaluateResponse
+// @Failure 400 {object} ErrorResponse "Invalid request or facts don't match schema"
+// @Failure 404 {object} ErrorResponse "Tenant not found"
+// @Failure 500 {object} ErrorResponse "Evaluation error"
+// @Router /api/v1/evaluate [post]
 func (s *Server) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TenantID string         `json:"tenantId"`
@@ -219,7 +272,17 @@ func (s *Server) handleListTenants(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Create tenant handler
+// handleCreateTenant godoc
+// @Summary Create a new tenant
+// @Description Create a new tenant in the system
+// @Tags tenants
+// @Accept json
+// @Produce json
+// @Param tenant body CreateTenantRequest true "Tenant details"
+// @Success 201 {object} TenantResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /api/v1/tenants [post]
 func (s *Server) handleCreateTenant(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name string `json:"name"`
@@ -253,7 +316,19 @@ func (s *Server) handleCreateTenant(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Create schema handler
+// handleCreateSchema godoc
+// @Summary Create a schema for a tenant
+// @Description Create a new schema definition for a tenant. Can only be called once per tenant. See validation rules in documentation.
+// @Tags schemas
+// @Accept json
+// @Produce json
+// @Param tenantId path string true "Tenant ID"
+// @Param schema body CreateSchemaRequest true "Schema definition"
+// @Success 201 {object} SchemaResponse
+// @Failure 400 {object} ErrorResponse "Invalid schema - see validation rules"
+// @Failure 404 {object} ErrorResponse "Tenant not found"
+// @Failure 409 {object} ErrorResponse "Schema already exists"
+// @Router /api/v1/tenants/{tenantId}/schema [post]
 func (s *Server) handleCreateSchema(w http.ResponseWriter, r *http.Request) {
 	tenantID := chi.URLParam(r, "tenantId")
 
@@ -268,6 +343,13 @@ func (s *Server) handleCreateSchema(w http.ResponseWriter, r *http.Request) {
 
 	if req.Definition == nil {
 		respondError(w, http.StatusBadRequest, "definition is required", nil)
+		return
+	}
+
+	// REQ-SEC-003: Validate schema before any database operations
+	// REQ-API-001: Create endpoint SHALL validate schema
+	if err := multitenantengine.ValidateSchema(req.Definition); err != nil {
+		respondError(w, http.StatusBadRequest, fmt.Sprintf("schema validation failed: %v", err), nil)
 		return
 	}
 
@@ -337,6 +419,13 @@ func (s *Server) handleUpdateSchema(w http.ResponseWriter, r *http.Request) {
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body", err)
+		return
+	}
+
+	// REQ-SEC-003: Validate schema before any database operations
+	// REQ-API-002: Update endpoint SHALL validate schema
+	if err := multitenantengine.ValidateSchema(req.Definition); err != nil {
+		respondError(w, http.StatusBadRequest, fmt.Sprintf("schema validation failed: %v", err), nil)
 		return
 	}
 

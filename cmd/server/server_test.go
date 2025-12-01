@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -430,4 +431,246 @@ func makeHTTPRequest(method, url string, body interface{}) (*http.Response, erro
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	return client.Do(req)
+}
+
+// TestSchemaValidation_EmptySchema verifies REQ-API-001: Empty schema rejected
+func TestSchemaValidation_EmptySchema(t *testing.T) {
+	db, stop := setupTestDB(t)
+	defer stop()
+
+	// Create tenant
+	tenantID := createTestTenant(t, db, "test-tenant-validation-1")
+
+	// Try to create empty schema
+	createSchemaReq := map[string]interface{}{
+		"definition": map[string]interface{}{}, // Empty schema
+	}
+
+	resp, err := makeHTTPRequest("POST", fmt.Sprintf("http://localhost:8080/api/v1/tenants/%s/schema", tenantID), createSchemaReq)
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Should be rejected with 400
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("Expected status 400 for empty schema, got %d", resp.StatusCode)
+	}
+
+	var errorResp map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&errorResp)
+	if errorMsg, ok := errorResp["error"].(string); !ok || !strings.Contains(errorMsg, "empty") {
+		t.Errorf("Expected error message about empty schema, got: %v", errorResp)
+	}
+}
+
+// TestSchemaValidation_InvalidType verifies REQ-API-001: Invalid type rejected
+func TestSchemaValidation_InvalidType(t *testing.T) {
+	db, stop := setupTestDB(t)
+	defer stop()
+
+	tenantID := createTestTenant(t, db, "test-tenant-validation-2")
+
+	// Try to create schema with invalid type
+	createSchemaReq := map[string]interface{}{
+		"definition": map[string]interface{}{
+			"User": map[string]interface{}{
+				"Age": "varchar", // Invalid type
+			},
+		},
+	}
+
+	resp, err := makeHTTPRequest("POST", fmt.Sprintf("http://localhost:8080/api/v1/tenants/%s/schema", tenantID), createSchemaReq)
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("Expected status 400 for invalid type, got %d", resp.StatusCode)
+	}
+
+	var errorResp map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&errorResp)
+	if errorMsg, ok := errorResp["error"].(string); !ok || !strings.Contains(errorMsg, "varchar") {
+		t.Errorf("Expected error message about invalid type varchar, got: %v", errorResp)
+	}
+}
+
+// TestSchemaValidation_InvalidIdentifier verifies REQ-API-001: Invalid identifiers rejected
+func TestSchemaValidation_InvalidIdentifier(t *testing.T) {
+	db, stop := setupTestDB(t)
+	defer stop()
+
+	tenantID := createTestTenant(t, db, "test-tenant-validation-3")
+
+	testCases := []struct {
+		name          string
+		objectName    string
+		fieldName     string
+		expectedError string
+	}{
+		{"object starts with digit", "123User", "Field", "123User"},
+		{"object with hyphen", "User-Profile", "Field", "User-Profile"},
+		{"field with hyphen", "User", "field-name", "field-name"},
+		{"reserved keyword as object", "return", "Field", "return"},
+		{"reserved keyword as field", "User", "if", "if"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			createSchemaReq := map[string]interface{}{
+				"definition": map[string]interface{}{
+					tc.objectName: map[string]interface{}{
+						tc.fieldName: "int",
+					},
+				},
+			}
+
+			resp, err := makeHTTPRequest("POST", fmt.Sprintf("http://localhost:8080/api/v1/tenants/%s/schema", tenantID), createSchemaReq)
+			if err != nil {
+				t.Fatalf("Request failed: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Errorf("Expected status 400 for %s, got %d", tc.name, resp.StatusCode)
+			}
+
+			var errorResp map[string]interface{}
+			json.NewDecoder(resp.Body).Decode(&errorResp)
+			if errorMsg, ok := errorResp["error"].(string); !ok || !strings.Contains(errorMsg, tc.expectedError) {
+				t.Errorf("Expected error message to contain %q for %s, got: %v", tc.expectedError, tc.name, errorResp)
+			}
+		})
+	}
+}
+
+// TestSchemaValidation_TooManyObjects verifies REQ-API-001: Schema size limits enforced
+func TestSchemaValidation_TooManyObjects(t *testing.T) {
+	db, stop := setupTestDB(t)
+	defer stop()
+
+	tenantID := createTestTenant(t, db, "test-tenant-validation-4")
+
+	// Create schema with 101 objects (exceeds max of 100)
+	definition := make(map[string]interface{})
+	for i := 0; i < 101; i++ {
+		objectName := fmt.Sprintf("Object%d", i)
+		definition[objectName] = map[string]interface{}{
+			"Field": "int",
+		}
+	}
+
+	createSchemaReq := map[string]interface{}{
+		"definition": definition,
+	}
+
+	resp, err := makeHTTPRequest("POST", fmt.Sprintf("http://localhost:8080/api/v1/tenants/%s/schema", tenantID), createSchemaReq)
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("Expected status 400 for too many objects, got %d", resp.StatusCode)
+	}
+
+	var errorResp map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&errorResp)
+	if errorMsg, ok := errorResp["error"].(string); !ok || !strings.Contains(errorMsg, "100") {
+		t.Errorf("Expected error message about max 100 objects, got: %v", errorResp)
+	}
+}
+
+// TestSchemaValidation_UpdateEndpoint verifies REQ-API-002: Update endpoint validates
+func TestSchemaValidation_UpdateEndpoint(t *testing.T) {
+	db, stop := setupTestDB(t)
+	defer stop()
+
+	tenantID := createTestTenant(t, db, "test-tenant-validation-5")
+
+	// First create a valid schema
+	validSchema := map[string]interface{}{
+		"definition": map[string]interface{}{
+			"User": map[string]interface{}{
+				"Age": "int",
+			},
+		},
+	}
+	makeRequest(t, "POST", fmt.Sprintf("http://localhost:8080/api/v1/tenants/%s/schema", tenantID), validSchema)
+
+	// Try to update with invalid schema
+	invalidSchema := map[string]interface{}{
+		"definition": map[string]interface{}{
+			"User": map[string]interface{}{
+				"Age": "InvalidType", // Invalid type
+			},
+		},
+	}
+
+	resp, err := makeHTTPRequest("PUT", fmt.Sprintf("http://localhost:8080/api/v1/tenants/%s/schema", tenantID), invalidSchema)
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("Expected status 400 for invalid update, got %d", resp.StatusCode)
+	}
+
+	var errorResp map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&errorResp)
+	if errorMsg, ok := errorResp["error"].(string); !ok || !strings.Contains(errorMsg, "InvalidType") {
+		t.Errorf("Expected error message about invalid type, got: %v", errorResp)
+	}
+}
+
+// TestSchemaValidation_ValidSchema verifies valid schemas are accepted
+func TestSchemaValidation_ValidSchema(t *testing.T) {
+	db, stop := setupTestDB(t)
+	defer stop()
+
+	tenantID := createTestTenant(t, db, "test-tenant-validation-6")
+
+	// Create valid schema with all supported types
+	validSchema := map[string]interface{}{
+		"definition": map[string]interface{}{
+			"User": map[string]interface{}{
+				"Age":       "int",
+				"Balance":   "int64",
+				"Score":     "float64",
+				"Name":      "string",
+				"IsActive":  "bool",
+				"Data":      "bytes",
+				"CreatedAt": "timestamp",
+				"Elapsed":   "duration",
+			},
+		},
+	}
+
+	resp, err := makeHTTPRequest("POST", fmt.Sprintf("http://localhost:8080/api/v1/tenants/%s/schema", tenantID), validSchema)
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		t.Fatalf("Expected status 201 for valid schema, got %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+}
+
+// Helper to create a test tenant
+func createTestTenant(t *testing.T, db *sql.DB, name string) string {
+	var tenantID string
+	err := db.QueryRow(`
+		INSERT INTO tenants (name, created_at, updated_at)
+		VALUES ($1, NOW(), NOW())
+		RETURNING id
+	`, name).Scan(&tenantID)
+	if err != nil {
+		t.Fatalf("Failed to create test tenant: %v", err)
+	}
+	return tenantID
 }

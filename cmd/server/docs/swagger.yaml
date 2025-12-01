@@ -1,0 +1,261 @@
+basePath: /
+definitions:
+  CreateSchemaRequest:
+    properties:
+      definition:
+        $ref: '#/definitions/multitenantengine.Schema'
+    required:
+    - definition
+    type: object
+  CreateTenantRequest:
+    properties:
+      name:
+        example: Acme Corp
+        type: string
+    required:
+    - name
+    type: object
+  ErrorResponse:
+    properties:
+      error:
+        example: 'validation failed: schema cannot be empty'
+        type: string
+    type: object
+  EvaluateRequest:
+    properties:
+      facts:
+        additionalProperties: true
+        type: object
+      rules:
+        example:
+        - rule-123
+        - rule-456
+        items:
+          type: string
+        type: array
+      tenantId:
+        example: 123e4567-e89b-12d3-a456-426614174000
+        type: string
+    required:
+    - facts
+    - tenantId
+    type: object
+  EvaluateResponse:
+    properties:
+      evaluationTime:
+        example: 2.3ms
+        type: string
+      results:
+        items:
+          $ref: '#/definitions/EvaluationResultResponse'
+        type: array
+    type: object
+  EvaluationResultResponse:
+    properties:
+      Error:
+        type: string
+      Matched:
+        example: true
+        type: boolean
+      RuleID:
+        example: rule-123
+        type: string
+      RuleName:
+        example: Adult User Check
+        type: string
+      Trace:
+        additionalProperties: true
+        type: object
+    type: object
+  HealthResponse:
+    properties:
+      status:
+        example: ok
+        type: string
+    type: object
+  SchemaResponse:
+    properties:
+      created_at:
+        example: "2024-01-15T10:30:00Z"
+        type: string
+      definition:
+        $ref: '#/definitions/multitenantengine.Schema'
+      status:
+        example: active
+        type: string
+      version:
+        example: 1
+        type: integer
+    type: object
+  TenantResponse:
+    properties:
+      created_at:
+        example: "2024-01-15T10:30:00Z"
+        type: string
+      id:
+        example: 123e4567-e89b-12d3-a456-426614174000
+        type: string
+      name:
+        example: Acme Corp
+        type: string
+      updated_at:
+        example: "2024-01-15T10:30:00Z"
+        type: string
+    type: object
+  multitenantengine.Schema:
+    additionalProperties:
+      additionalProperties:
+        type: string
+      type: object
+    type: object
+host: localhost:8080
+info:
+  contact:
+    email: support@example.com
+    name: API Support
+  description: |-
+    A multi-tenant rules engine with dynamic schemas and CEL rule evaluation
+
+    ## Features
+    - Multi-tenant support with isolated data
+    - Dynamic schema definition per tenant
+    - CEL (Common Expression Language) rule engine
+    - Real-time rule evaluation
+    - Zero-downtime schema updates
+
+    ## Supported Data Types
+    - int, int64, float64, string, bool, bytes, timestamp, duration
+
+    ## Authentication
+    Not yet implemented (planned for production)
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  title: Multi-Tenant Rules Engine API
+  version: "1.0"
+paths:
+  /api/v1/evaluate:
+    post:
+      consumes:
+      - application/json
+      description: Evaluate a tenant's rules against provided facts. Returns which
+        rules matched.
+      parameters:
+      - description: Evaluation request with tenant ID, facts, and optional rule IDs
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/EvaluateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/EvaluateResponse'
+        "400":
+          description: Invalid request or facts don't match schema
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: Tenant not found
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "500":
+          description: Evaluation error
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      summary: Evaluate rules against facts
+      tags:
+      - evaluation
+  /api/v1/health:
+    get:
+      description: Check if the service and database are healthy
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/HealthResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      summary: Health check
+      tags:
+      - health
+  /api/v1/tenants:
+    post:
+      consumes:
+      - application/json
+      description: Create a new tenant in the system
+      parameters:
+      - description: Tenant details
+        in: body
+        name: tenant
+        required: true
+        schema:
+          $ref: '#/definitions/CreateTenantRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/TenantResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      summary: Create a new tenant
+      tags:
+      - tenants
+  /api/v1/tenants/{tenantId}/schema:
+    post:
+      consumes:
+      - application/json
+      description: Create a new schema definition for a tenant. Can only be called
+        once per tenant. See validation rules in documentation.
+      parameters:
+      - description: Tenant ID
+        in: path
+        name: tenantId
+        required: true
+        type: string
+      - description: Schema definition
+        in: body
+        name: schema
+        required: true
+        schema:
+          $ref: '#/definitions/CreateSchemaRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/SchemaResponse'
+        "400":
+          description: Invalid schema - see validation rules
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: Tenant not found
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "409":
+          description: Schema already exists
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      summary: Create a schema for a tenant
+      tags:
+      - schemas
+schemes:
+- http
+swagger: "2.0"
