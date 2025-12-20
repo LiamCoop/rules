@@ -235,17 +235,44 @@ func (en *Engine) EvaluateAll(facts map[string]any) ([]*EvaluationResult, error)
 
 	results := make([]*EvaluationResult, 0, len(rules))
 	for _, rule := range rules {
-		result, err := en.Evaluate(rule.ID, facts)
+		// Use cached rule data instead of fetching from DB
+		// This eliminates 10-100 DB queries per evaluation request
+		en.mu.RLock()
+		prog, exists := en.programs[rule.ID]
+		en.mu.RUnlock()
+
+		if !exists {
+			results = append(results, &EvaluationResult{
+				RuleID:   rule.ID,
+				RuleName: rule.Name,
+				Matched:  false,
+				Error:    fmt.Errorf("rule %s is not compiled", rule.ID),
+			})
+			continue
+		}
+
+		out, details, err := prog.Eval(facts)
 		if err != nil {
-			// Continue evaluating other rules even if one fails
-			result = &EvaluationResult{
+			results = append(results, &EvaluationResult{
 				RuleID:   rule.ID,
 				RuleName: rule.Name,
 				Matched:  false,
 				Error:    err,
-			}
+			})
+			continue
 		}
-		results = append(results, result)
+
+		matched := false
+		if boolVal, ok := out.Value().(bool); ok {
+			matched = boolVal
+		}
+
+		results = append(results, &EvaluationResult{
+			RuleID:   rule.ID,
+			RuleName: rule.Name,
+			Matched:  matched,
+			Trace:    details.State(),
+		})
 	}
 
 	return results, nil

@@ -1,0 +1,41 @@
+# Git
+.git
+.gitignore
+
+# Environment files
+.env
+.env.*
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Test files
+*_test.go
+coverage.out
+coverage*.out
+coverage*.html
+
+# Documentation
+*.md
+!README.md
+
+# Build artifacts
+server
+*.exe
+*.test
+
+# Load testing
+loadtests/
+
+# Scripts
+scripts/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude
+.claude/

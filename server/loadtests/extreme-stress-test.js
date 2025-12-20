@@ -8,24 +8,53 @@ const evaluationTime = new Trend('evaluation_time_ms');
 const rulesMatched = new Counter('rules_matched_total');
 const evaluationSuccess = new Rate('evaluation_success');
 
-// EXTREME stress test - find the breaking point!
+// EXTREME stress test - find the REAL breaking point!
+// Post connection-pool fix (MaxOpenConns=100, MaxIdleConns=50), we can handle much higher load
+//
+// Test Profile:
+// - Total duration: ~11 minutes
+// - Peak load: 15,000 concurrent VUs
+// - Expected RPS at peak: 15,000+ RPS (based on 0.01s sleep)
+//
+// What to monitor during this test:
+// 1. Railway Metrics:
+//    - CPU usage (both app and DB instances)
+//    - Memory consumption
+//    - Network I/O (watch for saturation)
+//    - Database connection count
+// 2. k6 Output:
+//    - When do error rates start increasing?
+//    - At what VU count does P95 latency spike?
+//    - http_req_failed rate (connection refused = hit limit)
+//
+// Expected bottlenecks (in order of likelihood):
+// 1. Database connections (100 max configured)
+// 2. CPU on database instance (CEL evaluation queries)
+// 3. Network bandwidth (egress limits)
+// 4. Application CPU (CEL evaluation overhead)
 export const options = {
   stages: [
-    { duration: '30s', target: 100 },   // Quick ramp
-    { duration: '30s', target: 300 },   // Push higher
-    { duration: '1m', target: 500 },    // 500 VUs!
-    { duration: '2m', target: 500 },    // Hold at 500
-    { duration: '30s', target: 750 },   // Push to 750
-    { duration: '1m', target: 750 },    // Hold at 750
-    { duration: '30s', target: 1000 },  // 1000 VUs - find the limit!
-    { duration: '1m', target: 1000 },   // Hold at max
-    { duration: '30s', target: 0 },     // Cool down
+    // Warm-up phase
+    { duration: '30s', target: 1000 },    // Quick ramp to baseline
+    { duration: '30s', target: 1000 },    // Stabilize
+
+    // Aggressive ramp to find limits
+    { duration: '1m', target: 3000 },     // Known good from diagnostic test (6.9k RPS)
+    { duration: '1m', target: 5000 },     // Push to 5k VUs
+    { duration: '1m', target: 7500 },     // 7.5k VUs - likely still healthy
+    { duration: '1m', target: 10000 },    // 10k VUs - serious load
+    { duration: '1m', target: 12500 },    // 12.5k VUs - finding the edge
+    { duration: '1m', target: 15000 },    // 15k VUs - MAXIMUM LOAD
+    { duration: '2m', target: 15000 },    // Hold at peak to observe stability
+
+    // Cool down
+    { duration: '30s', target: 0 },
   ],
-  // Very relaxed thresholds - we expect to break things
+  // Relaxed thresholds - we're intentionally breaking things to find limits
   thresholds: {
-    'http_req_duration': ['p(95)<1000', 'p(99)<2000'],  // Allow high latency
-    'http_req_failed': ['rate<0.10'],                    // Allow up to 10% errors
-    'checks': ['rate>0.85'],                             // 85% success acceptable
+    'http_req_duration': ['p(95)<2000', 'p(99)<5000'],  // Allow degradation under extreme load
+    'http_req_failed': ['rate<0.15'],                    // Allow up to 15% errors at peak
+    'checks': ['rate>0.80'],                             // 80% success acceptable when breaking
   },
 };
 
@@ -76,7 +105,11 @@ export function setup() {
   }
 
   console.log(`🚀 EXTREME STRESS TEST - Ready with ${tenantData.length} tenants`);
-  console.log('Target: 1000 concurrent VUs - Let\'s find the breaking point!');
+  console.log('🔥 Target: 15,000 concurrent VUs - Finding the REAL breaking point!');
+  console.log('📊 Post connection-pool fix - expecting 10,000+ RPS sustained');
+  console.log('⏱️  Test duration: ~11 minutes');
+  console.log('');
+  console.log('Watch Railway metrics during the test to see what breaks first!');
 
   return {
     tenants: tenantData

@@ -65,8 +65,9 @@ func NewServer(databaseURL string) (*Server, error) {
 
 	// Configure connection pool for high concurrency
 	// These settings prevent connection thrashing under load
-	db.SetMaxOpenConns(100)                  // Max concurrent connections to DB
-	db.SetMaxIdleConns(50)                   // Keep connections warm
+	// Increased to 300 after load testing showed connection pool saturation at 6k RPS
+	db.SetMaxOpenConns(300)                  // Max concurrent connections to DB
+	db.SetMaxIdleConns(150)                  // Keep connections warm
 	db.SetConnMaxLifetime(30 * time.Minute)  // Recycle connections periodically
 	db.SetConnMaxIdleTime(10 * time.Minute)  // Close idle connections
 

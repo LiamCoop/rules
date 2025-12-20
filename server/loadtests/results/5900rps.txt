@@ -1,0 +1,57 @@
+
+  █ THRESHOLDS
+
+    checks
+    ✓ 'rate>0.80' rate=97.48%
+
+    http_req_duration
+    ✗ 'p(95)<2000' p(95)=3.27s
+    ✗ 'p(99)<5000' p(99)=14.78s
+
+    http_req_failed
+    ✓ 'rate<0.15' rate=2.52%
+
+
+  █ TOTAL RESULTS
+
+    checks_total.......: 7208452 11975.274005/s
+    checks_succeeded...: 97.48%  7026887 out of 7208452
+    checks_failed......: 2.51%   181565 out of 7208452
+
+    ✗ evaluate: status is 200
+      ↳  97% — ✓ 3339987 / ✗ 85254
+    ✗ evaluate: has results
+      ↳  97% — ✓ 3339987 / ✗ 85254
+    ✗ get_rules: status is 200
+      ↳  96% — ✓ 173375 / ✗ 5610
+    ✗ get_rules: has rules array
+      ↳  96% — ✓ 173538 / ✗ 5447
+
+    CUSTOM
+    evaluation_success.............: 97.51%  3339987 out of 3425241
+    evaluation_time_ms.............: avg=457.717477 min=1        med=431      max=999    p(90)=753   p(95)=827
+    rules_matched_total............: 0       0/s
+
+    HTTP
+    http_req_duration..............: avg=1.17s      min=0s       med=231.94ms max=1m1s   p(90)=2.01s p(95)=3.27s
+      { expected_response:true }...: avg=846.26ms   min=136.35ms med=233.39ms max=59.96s p(90)=1.95s p(95)=3.1s
+    http_req_failed................: 2.52%   90864 out of 3604237
+    http_reqs......................: 3604237 5987.655277/s
+
+    EXECUTION
+    iteration_duration.............: avg=1.36s      min=10.87ms  med=245.15ms max=1m1s   p(90)=2.12s p(95)=3.59s
+    iterations.....................: 3604226 5987.637003/s
+    vus............................: 76      min=0                  max=15000
+    vus_max........................: 15000   min=15000              max=15000
+
+    NETWORK
+    data_received..................: 1.0 GB  1.7 MB/s
+    data_sent......................: 762 MB  1.3 MB/s
+
+
+
+
+running (10m01.9s), 00000/15000 VUs, 3604226 complete and 4211 interrupted iterations
+default ✓ [======================================] 00000/15000 VUs  9m30s
+ERRO[0603] thresholds on metrics 'http_req_duration' have been crossed
+

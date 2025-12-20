@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Railway__check-railway-status",
+      "mcp__Railway__create-project-and-link",
+      "Bash(railway status:*)",
+      "Bash(railway service:*)",
+      "Bash(k6 run --help:*)"
+    ]
+  }
+}
