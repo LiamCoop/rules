@@ -63,6 +63,13 @@ func NewServer(databaseURL string) (*Server, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
+	// Configure connection pool for high concurrency
+	// These settings prevent connection thrashing under load
+	db.SetMaxOpenConns(100)                  // Max concurrent connections to DB
+	db.SetMaxIdleConns(50)                   // Keep connections warm
+	db.SetConnMaxLifetime(30 * time.Minute)  // Recycle connections periodically
+	db.SetConnMaxIdleTime(10 * time.Minute)  // Close idle connections
+
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
