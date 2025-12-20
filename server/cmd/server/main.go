@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
+	"github.com/liamcoop/rules/internal/logger"
 	"github.com/liamcoop/rules/multitenantengine"
 	"github.com/liamcoop/rules/rules"
 	_ "github.com/lib/pq"
@@ -75,6 +76,17 @@ func NewServer(databaseURL string) (*Server, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
+	// Log initial connection pool stats
+	stats := db.Stats()
+	logger.Info("Database connection pool configured",
+		"max_open", 200,
+		"max_idle", 100,
+		"open_connections", stats.OpenConnections,
+	)
+
+	// Start background goroutine to monitor connection pool health
+	go monitorConnectionPool(db)
+
 	return NewServerWithDB(db)
 }
 
@@ -83,13 +95,14 @@ func NewServerWithDB(db *sql.DB) (*Server, error) {
 	engineManager := multitenantengine.NewMultiTenantEngineManager(db)
 
 	// Load all tenants
-	log.Println("Loading tenants from database...")
+	logger.Debug("Loading tenants from database")
 	if err := engineManager.LoadAllTenants(); err != nil {
+		logger.Error("Failed to load tenants", "error", err)
 		return nil, fmt.Errorf("failed to load tenants: %w", err)
 	}
 
 	tenants := engineManager.ListTenants()
-	log.Printf("Loaded %d tenants: %v", len(tenants), tenants)
+	logger.Info("Tenants loaded", "count", len(tenants))
 
 	s := &Server{
 		db:            db,
@@ -101,14 +114,75 @@ func NewServerWithDB(db *sql.DB) (*Server, error) {
 	return s, nil
 }
 
+// errorLoggingMiddleware tracks errors in metrics and samples logs
+// This allows unlimited error tracking without hitting Railway's 500 logs/sec limit
+func errorLoggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+
+		next.ServeHTTP(ww, r)
+
+		duration := time.Since(start)
+		status := ww.Status()
+
+		// Track errors in metrics (always counted, sampled for logs)
+		if status >= 500 {
+			logger.ErrorHttp5xx()
+			// Only log 1% of 5xx errors to avoid log spam
+			logger.Error("HTTP 5xx error",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"status", status,
+				"duration_ms", duration.Milliseconds(),
+			)
+		} else if status >= 400 {
+			logger.WarnHttp4xx()
+			// Only log 1% of 4xx errors
+			logger.Warn("HTTP 4xx error",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"status", status,
+			)
+		} else if duration > 1*time.Second {
+			logger.WarnSlowRequest()
+			// Only log 1% of slow requests
+			logger.Warn("Slow request",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"duration_ms", duration.Milliseconds(),
+			)
+		}
+		// Successful fast requests (<1s, 2xx/3xx) are NOT logged or counted
+	})
+}
+
+// panicRecoveryMiddleware recovers from panics and logs them
+func panicRecoveryMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if err := recover(); err != nil {
+				logger.Error("PANIC recovered",
+					"error", err,
+					"method", r.Method,
+					"path", r.URL.Path,
+					"remote_addr", r.RemoteAddr,
+				)
+				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) setupRoutes() {
 	r := chi.NewRouter()
 
 	// Middleware
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger)
-	r.Use(middleware.Recoverer)
+	r.Use(errorLoggingMiddleware)  // Custom middleware - only logs errors/slow requests
+	r.Use(panicRecoveryMiddleware)  // Custom panic recovery with logging
 	r.Use(middleware.Timeout(60 * time.Second))
 
 	// Swagger documentation
@@ -118,6 +192,9 @@ func (s *Server) setupRoutes() {
 
 	// Health check
 	r.Get("/api/v1/health", s.handleHealth)
+
+	// Metrics endpoint (doesn't count toward error logs)
+	r.Get("/api/v1/metrics", s.handleMetrics)
 
 	// Evaluation
 	r.Post("/api/v1/evaluate", s.handleEvaluate)
@@ -172,6 +249,41 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleMetrics returns aggregated error counts and DB connection pool stats
+// Poll this during load tests to see what's happening without hitting log limits
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	dbStats := s.db.Stats()
+
+	metrics := map[string]any{
+		"errors": map[string]int64{
+			"total_errors":       logger.TotalErrors.Load(),
+			"total_warnings":     logger.TotalWarnings.Load(),
+			"http_5xx":           logger.Total5xxErrors.Load(),
+			"http_4xx":           logger.Total4xxErrors.Load(),
+			"slow_requests":      logger.SlowRequests.Load(),
+			"conn_pool_warnings": logger.ConnPoolWarnings.Load(),
+		},
+		"database": map[string]any{
+			"open_connections":     dbStats.OpenConnections,
+			"in_use":               dbStats.InUse,
+			"idle":                 dbStats.Idle,
+			"wait_count":           dbStats.WaitCount,
+			"wait_duration_ms":     dbStats.WaitDuration.Milliseconds(),
+			"max_idle_closed":      dbStats.MaxIdleClosed,
+			"max_lifetime_closed":  dbStats.MaxLifetimeClosed,
+			"max_open_conns":       200,
+			"utilization_percent":  int(float64(dbStats.InUse) / 200.0 * 100),
+		},
+		"config": map[string]int{
+			"max_open_conns":    200,
+			"max_idle_conns":    100,
+			"error_sample_rate": 100,
+		},
+	}
+
+	respondJSON(w, http.StatusOK, metrics)
+}
+
 // handleEvaluate godoc
 // @Summary Evaluate rules against facts
 // @Description Evaluate a tenant's rules against provided facts. Returns which rules matched.
@@ -224,7 +336,7 @@ func (s *Server) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 			result, err := engine.Evaluate(ruleID, req.Facts)
 			if err != nil {
 				// Continue on error (might be rule not found)
-				log.Printf("Error evaluating rule %s: %v", ruleID, err)
+				logger.Warn("Rule evaluation error", "ruleID", ruleID, "error", err)
 				continue
 			}
 			results = append(results, result)
@@ -675,17 +787,51 @@ func generateUUID() string {
 	return uuid.New().String()
 }
 
+// monitorConnectionPool tracks connection pool stats every 30 seconds
+// This helps diagnose connection exhaustion - check /api/v1/metrics for live stats
+func monitorConnectionPool(db *sql.DB) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		stats := db.Stats()
+
+		// Only log if connection pool is under stress
+		utilizationPercent := float64(stats.InUse) / float64(200) * 100 // 200 = MaxOpenConns
+
+		if utilizationPercent > 70 || stats.WaitCount > 0 {
+			// Increment counter (always) and sample log (1%)
+			logger.WarnConnPool()
+			logger.Warn("Database connection pool under stress",
+				"in_use", stats.InUse,
+				"idle", stats.Idle,
+				"utilization_percent", int(utilizationPercent),
+				"wait_count", stats.WaitCount,
+			)
+		}
+
+		// Critical: Connection pool exhaustion (always logged)
+		if stats.InUse >= 190 { // Near max (200)
+			logger.Info("DATABASE CONNECTION POOL NEAR EXHAUSTION",
+				"in_use", stats.InUse,
+				"max_open", 200,
+				"waiting", stats.WaitCount,
+			)
+		}
+	}
+}
+
 func main() {
 	// Get database URL from environment
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
-		log.Fatal("DATABASE_URL environment variable is required")
+		logger.Fatal("DATABASE_URL environment variable is required")
 	}
 
 	// Create server
 	server, err := NewServer(databaseURL)
 	if err != nil {
-		log.Fatalf("Failed to create server: %v", err)
+		logger.Fatal("Failed to create server", "error", err)
 	}
 	defer server.db.Close()
 
@@ -705,9 +851,9 @@ func main() {
 
 	// Graceful shutdown handling
 	go func() {
-		log.Printf("Server starting on port %s", port)
+		logger.Info("Server starting", "port", port)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server failed to start: %v", err)
+			logger.Fatal("Server failed to start", "error", err)
 		}
 	}()
 
@@ -716,13 +862,13 @@ func main() {
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	<-sigChan
 
-	log.Println("Shutting down server...")
+	logger.Info("Shutting down server")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	if err := httpServer.Shutdown(ctx); err != nil {
-		log.Printf("Server shutdown error: %v", err)
+		logger.Error("Server shutdown error", "error", err)
 	}
 
-	log.Println("Server stopped")
+	logger.Info("Server stopped")
 }
