@@ -1,0 +1,143 @@
+  █ THRESHOLDS
+
+    checks
+    ✗ 'rate>0.95' rate=92.28%
+
+    http_req_duration
+    ✗ 'p(95)<200' p(95)=326.72ms
+    ✗ 'p(99)<500' p(99)=680.76ms
+
+    http_req_failed
+    ✓ 'rate<0.01' rate=0.00%
+
+
+  █ TOTAL RESULTS
+
+    checks_total.......: 224538 392.423471/s
+    checks_succeeded...: 92.28% 207205 out of 224538
+    checks_failed......: 7.71%  17333 out of 224538
+
+    ✓ evaluate: status is 200
+    ✓ evaluate: has results
+    ✓ get_rules: status is 200
+    ✗ get_rules: has rules array
+      ↳  0% — ✓ 0 / ✗ 17333
+    ✓ health: status is 200
+
+    CUSTOM
+    evaluation_success.............: 100.00% 92036 out of 92036
+    rules_matched_total............: 0       0/s
+
+    HTTP
+    http_req_duration..............: avg=214.79ms min=139.12ms med=197.61ms max=1.86s p(90)=281.26ms p(95)=326.72ms
+      { expected_response:true }...: avg=214.79ms min=139.12ms med=197.61ms max=1.86s p(90)=281.26ms p(95)=326.72ms
+    http_req_failed................: 0.00%   0 out of 115180
+    http_reqs......................: 115180  201.29927/s
+
+    EXECUTION
+    iteration_duration.............: avg=316.34ms min=239.47ms med=298.85ms max=1.96s p(90)=383.59ms p(95)=429.72ms
+    iterations.....................: 115169  201.280045/s
+    vus............................: 1       min=0              max=100
+    vus_max........................: 100     min=100            max=100
+
+    NETWORK
+    data_received..................: 57 MB   100 kB/s
+    data_sent......................: 21 MB   36 kB/s
+
+
+
+
+running (09m32.2s), 000/100 VUs, 115169 complete and 0 interrupted iterations
+default ✓ [======================================] 000/100 VUs  9m30s
+ERRO[0572] thresholds on metrics 'checks, http_req_duration' have been crossed
+⏎
+server/loadtests ❯ ls
+config.js     load-test.js  README.md     results/      seed.js
+server/loadtests ❯ ls results
+server/loadtests ❯ cd results
+loadtests/results ❯ nvim run1.txt
+loadtests/results ❯ ls
+run1.txt
+loadtests/results ❯ cd ..
+server/loadtests ❯ ls
+config.js       load-test.js    README.md       results/        seed.js         stress-test.js
+server/loadtests ❯ k6 run stress-test.js
+
+         /\      Grafana   /‾‾/
+    /\  /  \     |\  __   /  /
+   /  \/    \    | |/ /  /   ‾‾\
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/
+
+     execution: local
+        script: stress-test.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 250 max VUs, 5m30s max duration (incl. graceful stop):
+              * default: Up to 250 looping VUs for 5m0s over 6 stages (gracefulRampDown: 30s, gracefulStop: 30s)
+
+INFO[0000] Discovering tenants from database...          source=console
+INFO[0000] Found 10 tenants                              source=console
+INFO[0000] ✓ Tenant: load-test-tenant-5 (10 rules)       source=console
+INFO[0001] ✓ Tenant: load-test-tenant-4 (10 rules)       source=console
+INFO[0001] ✓ Tenant: load-test-tenant-3 (10 rules)       source=console
+INFO[0001] ✓ Tenant: load-test-tenant-2 (10 rules)       source=console
+INFO[0001] ✓ Tenant: load-test-tenant-1 (10 rules)       source=console
+INFO[0001] ✓ Tenant: load-test-tenant-5 (10 rules)       source=console
+INFO[0002] ✓ Tenant: load-test-tenant-4 (10 rules)       source=console
+INFO[0002] ✓ Tenant: load-test-tenant-3 (10 rules)       source=console
+INFO[0002] ✓ Tenant: load-test-tenant-2 (10 rules)       source=console
+INFO[0002] ✓ Tenant: load-test-tenant-1 (10 rules)       source=console
+INFO[0002] Setup complete! Ready to stress test with 10 tenants  source=console
+
+
+  █ THRESHOLDS
+
+    checks
+    ✓ 'rate>0.90' rate=100.00%
+
+    http_req_duration
+    ✓ 'p(95)<400' p(95)=346.74ms
+    ✓ 'p(99)<800' p(99)=684.35ms
+
+    http_req_failed
+    ✓ 'rate<0.05' rate=0.00%
+
+
+  █ TOTAL RESULTS
+
+    checks_total.......: 334872  1106.220098/s
+    checks_succeeded...: 100.00% 334872 out of 334872
+    checks_failed......: 0.00%   0 out of 334872
+
+    ✓ evaluate: status is 200
+    ✓ evaluate: has results
+    ✓ get_rules: status is 200
+    ✓ get_rules: has rules array
+
+    CUSTOM
+    evaluation_success.............: 100.00% 150660 out of 150660
+    evaluation_time_ms.............: avg=19.939532 min=1.000683 med=17.666227 max=999.211 p(90)=42.143541 p(95)=54.282262
+    rules_matched_total............: 0       0/s
+
+    HTTP
+    http_req_duration..............: avg=226.4ms   min=140.32ms med=208.68ms  max=1.77s   p(90)=298.43ms  p(95)=346.74ms
+      { expected_response:true }...: avg=226.4ms   min=140.32ms med=208.68ms  max=1.77s   p(90)=298.43ms  p(95)=346.74ms
+    http_req_failed................: 0.00%   0 out of 167447
+    http_reqs......................: 167447  553.146387/s
+
+    EXECUTION
+    iteration_duration.............: avg=277.8ms   min=190.74ms med=259.69ms  max=1.86s   p(90)=350.28ms  p(95)=399.37ms
+    iterations.....................: 167436  553.110049/s
+    vus............................: 5       min=0                max=250
+    vus_max........................: 250     min=250              max=250
+
+    NETWORK
+    data_received..................: 64 MB   212 kB/s
+    data_sent......................: 33 MB   109 kB/s
+
+
+
+
+running (5m02.7s), 000/250 VUs, 167436 complete and 0 interrupted iterations
+default ✓ [======================================] 000/250 VUs  5m0s

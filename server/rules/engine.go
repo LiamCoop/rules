@@ -14,6 +14,7 @@ import (
 type Engine struct {
 	env      *cel.Env
 	store    RuleStore
+	cache    RulesCache              // cache for active rules list
 	programs map[string]cel.Program // ruleID -> compiled program
 	mu       sync.RWMutex
 }
@@ -42,6 +43,7 @@ func NewEngineWithEnv(env *cel.Env, store RuleStore) (*Engine, error) {
 	en := &Engine{
 		env:      env,
 		store:    store,
+		cache:    NewInMemoryRulesCache(DefaultCacheConfig()),
 		programs: make(map[string]cel.Program),
 	}
 
@@ -125,6 +127,7 @@ func (en *Engine) Evaluate(ruleID string, facts map[string]any) (*EvaluationResu
 }
 
 // CompileAllRules compiles all active rules from the store
+// Also populates the cache with the active rules list
 func (en *Engine) CompileAllRules() error {
 	rules, err := en.store.ListActive()
 	if err != nil {
@@ -136,6 +139,9 @@ func (en *Engine) CompileAllRules() error {
 			return fmt.Errorf("failed to compile rule %s: %w", rule.ID, err)
 		}
 	}
+
+	// Populate cache with active rules
+	en.cache.Set(rules)
 
 	return nil
 }
@@ -166,6 +172,9 @@ func (en *Engine) AddRule(r *Rule) error {
 		return err
 	}
 
+	// Invalidate cache since rules list changed
+	en.cache.Invalidate()
+
 	return nil
 }
 
@@ -179,7 +188,14 @@ func (en *Engine) UpdateRule(r *Rule) error {
 	}
 
 	// Update in store
-	return en.store.Update(r)
+	if err := en.store.Update(r); err != nil {
+		return err
+	}
+
+	// Invalidate cache since rule metadata might have changed
+	en.cache.Invalidate()
+
+	return nil
 }
 
 // DeleteRule removes a rule from the store and compiled programs
@@ -193,16 +209,28 @@ func (en *Engine) DeleteRule(ruleID string) error {
 	delete(en.programs, ruleID)
 	en.mu.Unlock()
 
+	// Invalidate cache since rules list changed
+	en.cache.Invalidate()
+
 	return nil
 }
 
 // EvaluateAll evaluates all active rules against the provided facts
 // Satisfies REQ-EVAL-002: Evaluates all active rules
 // Satisfies REQ-EVAL-007: Continues evaluating even if some rules fail
+// Uses cache to avoid database query on every evaluation
 func (en *Engine) EvaluateAll(facts map[string]any) ([]*EvaluationResult, error) {
-	rules, err := en.store.ListActive()
-	if err != nil {
-		return nil, err
+	// Try to get rules from cache first
+	rules := en.cache.Get()
+
+	// If cache miss, fetch from database and populate cache
+	if rules == nil {
+		var err error
+		rules, err = en.store.ListActive()
+		if err != nil {
+			return nil, err
+		}
+		en.cache.Set(rules)
 	}
 
 	results := make([]*EvaluationResult, 0, len(rules))

@@ -1,32 +1,52 @@
 import http from 'k6/http';
-import { check, sleep } from 'k6';
+import { check } from 'k6';
 import { Trend, Counter, Rate } from 'k6/metrics';
-import { BASE_URL, thresholds, generateRandomFacts } from './config.js';
+import { BASE_URL, generateRandomFacts } from './config.js';
 
-// Custom metrics to track business-specific performance
-const evaluationTime = new Trend('evaluation_time_ms');  // From API response
+// Custom metrics
+const evaluationTime = new Trend('evaluation_time_ms');
 const rulesMatched = new Counter('rules_matched_total');
 const evaluationSuccess = new Rate('evaluation_success');
 
-// Load test configuration
+
 export const options = {
-  stages: [
-    { duration: '30s', target: 10 },   // Warm-up: 0 → 10 VUs
-    { duration: '1m', target: 50 },    // Ramp-up: 10 → 50 VUs
-    { duration: '3m', target: 50 },    // Sustained load: 50 VUs
-    { duration: '1m', target: 100 },   // Peak test: 50 → 100 VUs
-    { duration: '3m', target: 100 },   // Peak hold: 100 VUs
-    { duration: '1m', target: 0 },     // Cool-down: 100 → 0 VUs
-  ],
-  thresholds: thresholds,
+  scenarios: {
+    extreme_stress: {
+      executor: 'ramping-arrival-rate',
+
+      // Requests per second
+      startRate: 200,
+      timeUnit: '1s',
+
+      // k6 will allocate VUs only if needed
+      preAllocatedVUs: 500,
+      maxVUs: 2000,
+
+      stages: [
+        { target: 500, duration: '30s' },   // warm-up
+        { target: 1500, duration: '30s' },  // push
+        { target: 3000, duration: '1m' },   // serious load
+        { target: 5000, duration: '2m' },   // hold
+        { target: 7500, duration: '30s' },  // push harder
+        { target: 7500, duration: '1m' },   // sustain
+        { target: 10000, duration: '30s' }, // breaking point
+        { target: 10000, duration: '1m' },  // observe failure modes
+        { target: 0, duration: '30s' },     // cool down
+      ],
+    },
+  },
+
+  thresholds: {
+    http_req_duration: ['p(95)<1000', 'p(99)<2000'],
+    http_req_failed: ['rate<0.10'],
+    checks: ['rate>0.85'],
+  },
 };
 
-// Setup function - runs once before all VUs start
-// Discovers existing tenants from the database (created by seed.js)
+// Setup function - discovers existing tenants
 export function setup() {
   console.log('Discovering tenants from database...');
 
-  // Fetch all tenants
   const tenantsRes = http.get(`${BASE_URL}/api/v1/tenants`);
 
   if (tenantsRes.status !== 200) {
@@ -42,7 +62,6 @@ export function setup() {
 
   console.log(`Found ${tenants.length} tenants`);
 
-  // For each tenant, fetch their rules
   const tenantData = [];
   for (const tenant of tenants) {
     const rulesRes = http.get(`${BASE_URL}/api/v1/tenants/${tenant.id}/rules`);
@@ -54,7 +73,7 @@ export function setup() {
 
     const rulesResponse = JSON.parse(rulesRes.body);
     const rules = rulesResponse.rules || [];
-    const ruleIds = rules.map(r => r.ID); // Note: ID is capitalized in the API response
+    const ruleIds = rules.map(r => r.ID);
 
     tenantData.push({
       id: tenant.id,
@@ -67,39 +86,29 @@ export function setup() {
   }
 
   if (tenantData.length === 0) {
-    throw new Error('No valid tenants with rules found! Please run seed.js first.');
+    throw new Error('No valid tenants with rules found!');
   }
 
-  console.log(`Setup complete! Ready to test with ${tenantData.length} tenants`);
+  console.log(`🚀 EXTREME STRESS TEST - Ready with ${tenantData.length} tenants`);
+  console.log('Target: 1000 concurrent VUs - Let\'s find the breaking point!');
 
   return {
     tenants: tenantData
   };
 }
 
-// Main test function - runs for each VU iteration
+// Main test function - 95% evaluations for maximum CPU stress
 export default function(data) {
-  // Randomly select a tenant for this iteration (simulates multi-tenant load)
   const tenant = data.tenants[Math.floor(Math.random() * data.tenants.length)];
 
-  // Request distribution: 80% evaluate, 15% get rules, 5% health
-  const rand = Math.random();
-
-  if (rand < 0.80) {
-    // 80% - Rule evaluation (core business logic)
+  // 95% evaluations - maximize CEL engine stress
+  if (Math.random() < 0.95) {
     evaluateRules(tenant);
-  } else if (rand < 0.95) {
-    // 15% - Get rules (realistic read pattern)
-    getRules(tenant);
   } else {
-    // 5% - Health check
-    healthCheck();
+    getRules(tenant);
   }
-
-  sleep(0.1); // Small delay between iterations
 }
 
-// Evaluate rules with random facts
 function evaluateRules(tenant) {
   const facts = generateRandomFacts();
 
@@ -131,30 +140,25 @@ function evaluateRules(tenant) {
 
   evaluationSuccess.add(success);
 
-  // Track custom metrics from response
   if (res.status === 200) {
     try {
       const body = JSON.parse(res.body);
 
-      // Track evaluation time from API response
-      // API returns time as string like "20.212077ms", need to parse to number
       if (body.evaluationTime) {
         const timeMs = parseFloat(body.evaluationTime.replace('ms', ''));
         evaluationTime.add(timeMs);
       }
 
-      // Count how many rules matched
       if (body.results) {
         const matchedCount = body.results.filter(r => r.matched).length;
         rulesMatched.add(matchedCount);
       }
     } catch (e) {
-      // Ignore JSON parse errors
+      // Ignore
     }
   }
 }
 
-// Get all rules for a tenant
 function getRules(tenant) {
   const res = http.get(
     `${BASE_URL}/api/v1/tenants/${tenant.id}/rules`,
@@ -173,19 +177,5 @@ function getRules(tenant) {
         return false;
       }
     },
-  });
-}
-
-// Health check endpoint
-function healthCheck() {
-  const res = http.get(
-    `${BASE_URL}/api/v1/health`,
-    {
-      tags: { endpoint: 'health' }
-    }
-  );
-
-  check(res, {
-    'health: status is 200': (r) => r.status === 200,
   });
 }

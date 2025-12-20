@@ -1,0 +1,46 @@
+  http_req_failed
+    ✓ 'rate<0.10' rate=0.00%
+
+
+  █ TOTAL RESULTS
+
+    checks_total.......: 2533714 5304.464955/s
+    checks_succeeded...: 99.99%  2533704 out of 2533714
+    checks_failed......: 0.00%   10 out of 2533714
+
+    ✗ evaluate: status is 200
+      ↳  99% — ✓ 1203653 / ✗ 5
+    ✗ evaluate: has results
+      ↳  99% — ✓ 1203653 / ✗ 5
+    ✓ get_rules: status is 200
+    ✓ get_rules: has rules array
+
+    CUSTOM
+    evaluation_success.............: 99.99%  1203653 out of 1203658
+    evaluation_time_ms.............: avg=500.047791 min=1       med=513      max=999    p(90)=789      p(95)=859
+    rules_matched_total............: 0       0/s
+
+    HTTP
+    http_req_duration..............: avg=503.94ms   min=138.2ms med=366.79ms max=1m0s   p(90)=972.89ms p(95)=1.26s
+      { expected_response:true }...: avg=503.77ms   min=138.2ms med=366.79ms max=14.35s p(90)=972.87ms p(95)=1.26s
+    http_req_failed................: 0.00%   5 out of 1266868
+    http_reqs......................: 1266868 2652.255506/s
+
+    EXECUTION
+    dropped_iterations.............: 1038642 2174.452243/s
+    iteration_duration.............: avg=505.63ms   min=138.5ms med=367.24ms max=1m0s   p(90)=975.47ms p(95)=1.26s
+    iterations.....................: 1266857 2652.232477/s
+    vus............................: 1       min=0                  max=2000
+    vus_max........................: 2000    min=500                max=2000
+
+    NETWORK
+    data_received..................: 340 MB  711 kB/s
+    data_sent......................: 260 MB  544 kB/s
+
+
+
+
+running (7m57.7s), 0000/2000 VUs, 1266857 complete and 0 interrupted iterations
+extreme_stress ✓ [======================================] 0000/2000 VUs  7m30s  00012.91 iters/s
+ERRO[0478] thresholds on metrics 'http_req_duration' have been crossed
+server/loadtests ❯

@@ -1,12 +1,11 @@
 // Shared k6 configuration for load tests
-export const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
+export const BASE_URL = __ENV.BASE_URL || 'https://rules-engine-production.up.railway.app';
 
 // Common thresholds for performance validation
 export const thresholds = {
-  'http_req_duration{p(95)}': ['p(95)<200'], // 95% of requests should complete under 200ms
-  'http_req_duration{p(99)}': ['p(99)<500'], // 99% of requests should complete under 500ms
-  'http_req_failed': ['rate<0.01'],           // Less than 1% error rate
-  'checks': ['rate>0.95'],                    // 95% of custom checks should pass
+  'http_req_duration': ['p(95)<200', 'p(99)<500'], // 95% under 200ms, 99% under 500ms
+  'http_req_failed': ['rate<0.01'],                 // Less than 1% error rate
+  'checks': ['rate>0.95'],                          // 95% of custom checks should pass
 };
 
 // Helper function to generate random facts for evaluation

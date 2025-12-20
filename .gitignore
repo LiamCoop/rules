@@ -34,5 +34,6 @@ go.work
 .DS_Store
 Thumbs.db
 
-#
-server
+# Load test results
+server/loadtests/results/*.json
+server/loadtests/results/*.html
