@@ -78,8 +78,8 @@ func NewServer(databaseURL string) (*Server, error) {
 	// Log initial connection pool stats
 	stats := db.Stats()
 	logger.Info("Database connection pool configured",
-		"max_open", 200,
-		"max_idle", 100,
+		"max_open", 300,
+		"max_idle", 150,
 		"open_connections", stats.OpenConnections,
 	)
 
@@ -136,7 +136,7 @@ func errorLoggingMiddleware(next http.Handler) http.Handler {
 				"duration_ms", duration.Milliseconds(),
 			)
 		} else if status >= 400 {
-			logger.WarnHttp4xx()
+			logger.WarnHttp4xx(status)
 			// Only log 1% of 4xx errors
 			logger.Warn("HTTP 4xx error",
 				"method", r.Method,
@@ -259,6 +259,9 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 			"total_warnings":     logger.TotalWarnings.Load(),
 			"http_5xx":           logger.Total5xxErrors.Load(),
 			"http_4xx":           logger.Total4xxErrors.Load(),
+			"http_400":           logger.Total400Errors.Load(),
+			"http_404":           logger.Total404Errors.Load(),
+			"http_429":           logger.Total429Errors.Load(),
 			"slow_requests":      logger.SlowRequests.Load(),
 			"conn_pool_warnings": logger.ConnPoolWarnings.Load(),
 		},
