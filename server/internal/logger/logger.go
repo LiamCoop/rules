@@ -58,19 +58,22 @@ var (
 )
 
 func init() {
-	programLevel.Set(slog.LevelInfo)
+	// Default to DEBUG to ensure logs are visible
+	programLevel.Set(slog.LevelDebug)
 
-	// Get log level from environment variable (default: INFO)
+	// Get log level from environment variable (default: DEBUG)
 	levelStr := os.Getenv("LOG_LEVEL")
 	if levelStr == "" {
-		levelStr = "INFO"
+		levelStr = "DEBUG"
 	}
 
 	level, err := ParseLevel(levelStr)
 	if err != nil {
-		level = slog.LevelInfo
+		level = slog.LevelDebug
+		fmt.Fprintf(os.Stderr, "⚠️  Invalid LOG_LEVEL '%s', using DEBUG\n", levelStr)
 	}
 	programLevel.Set(level)
+	fmt.Fprintf(os.Stderr, "📊 Log level set to: %s\n", level)
 
 	// Get error sample rate (default: 100 = 1% of errors/warnings logged)
 	// Set ERROR_SAMPLE_RATE=1 to log all errors/warnings
@@ -92,19 +95,30 @@ func init() {
 			serviceName = "unknown-service"
 		}
 
+		// Log OTEL configuration for debugging
+		endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+		if endpoint == "" {
+			endpoint = "(using default: localhost:4317)"
+		}
+		fmt.Fprintf(os.Stderr, "OTEL Configuration:\n")
+		fmt.Fprintf(os.Stderr, "  OTEL_ENABLED: true\n")
+		fmt.Fprintf(os.Stderr, "  OTEL_SERVICE_NAME: %s\n", serviceName)
+		fmt.Fprintf(os.Stderr, "  OTEL_EXPORTER_OTLP_ENDPOINT: %s\n", endpoint)
+
 		shutdown, err := setupOTELLogging(context.Background(), serviceName)
 		if err != nil {
 			// Fall back to JSON handler if OTEL setup fails
-			fmt.Fprintf(os.Stderr, "Failed to setup OTEL logging, falling back to JSON: %v\n", err)
+			fmt.Fprintf(os.Stderr, "❌ Failed to setup OTEL logging, falling back to JSON: %v\n", err)
 			setupJSONLogging()
 		} else {
 			shutdownFunc = shutdown
-			fmt.Fprintf(os.Stderr, "OpenTelemetry logging enabled for service: %s (sampling: 1/%d)\n", serviceName, atomic.LoadInt32(&errorSampleRate))
+			fmt.Fprintf(os.Stderr, "✅ OpenTelemetry logging enabled for service: %s (sampling: 1/%d)\n", serviceName, atomic.LoadInt32(&errorSampleRate))
 		}
 	} else {
 		// Use standard JSON handler
 		setupJSONLogging()
-		fmt.Fprintf(os.Stderr, "JSON logging enabled (sampling: 1/%d)\n", atomic.LoadInt32(&errorSampleRate))
+		fmt.Fprintf(os.Stderr, "📝 JSON logging enabled (sampling: 1/%d)\n", atomic.LoadInt32(&errorSampleRate))
+		fmt.Fprintf(os.Stderr, "   To enable OTEL: export OTEL_ENABLED=true\n")
 	}
 }
 
@@ -121,6 +135,8 @@ func setupJSONLogging() {
 
 // setupOTELLogging configures OpenTelemetry logging
 func setupOTELLogging(ctx context.Context, serviceName string) (func(context.Context) error, error) {
+	fmt.Fprintf(os.Stderr, "  Setting up OTEL exporter...\n")
+
 	// Resource = service identity
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
@@ -130,12 +146,23 @@ func setupOTELLogging(ctx context.Context, serviceName string) (func(context.Con
 	if err != nil {
 		return nil, fmt.Errorf("failed to create resource: %w", err)
 	}
+	fmt.Fprintf(os.Stderr, "  ✓ Created OTEL resource\n")
 
 	// OTLP log exporter (gRPC)
-	exporter, err := otlploggrpc.New(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
+	// Get endpoint from env var or use default
+	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+	if endpoint == "" {
+		endpoint = "localhost:4317"
 	}
+	fmt.Fprintf(os.Stderr, "  Connecting to OTLP collector at %s...\n", endpoint)
+
+	exporter, err := otlploggrpc.New(ctx,
+		otlploggrpc.WithEndpoint(endpoint),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OTLP exporter (check if collector is reachable): %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "  ✓ Connected to OTLP collector at %s\n", endpoint)
 
 	// Log processor (batching is recommended)
 	processor := sdklog.NewBatchProcessor(exporter)

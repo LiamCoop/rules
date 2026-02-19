@@ -156,24 +156,6 @@ func errorLoggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// panicRecoveryMiddleware recovers from panics and logs them
-func panicRecoveryMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer func() {
-			if err := recover(); err != nil {
-				logger.Error("PANIC recovered",
-					"error", err,
-					"method", r.Method,
-					"path", r.URL.Path,
-					"remote_addr", r.RemoteAddr,
-				)
-				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-			}
-		}()
-		next.ServeHTTP(w, r)
-	})
-}
-
 func (s *Server) setupRoutes() {
 	r := chi.NewRouter()
 
@@ -181,7 +163,6 @@ func (s *Server) setupRoutes() {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(errorLoggingMiddleware)  // Custom middleware - only logs errors/slow requests
-	r.Use(panicRecoveryMiddleware)  // Custom panic recovery with logging
 	r.Use(middleware.Timeout(60 * time.Second))
 
 	// Swagger documentation
@@ -389,6 +370,7 @@ func (s *Server) handleListTenants(w http.ResponseWriter, r *http.Request) {
 		tenants = append(tenants, t)
 	}
 
+	logger.Info("GET return 5 tenants")
 	respondJSON(w, http.StatusOK, map[string]any{
 		"tenants": tenants,
 	})

@@ -35,6 +35,8 @@ export OTEL_SERVICE_NAME=my-service
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 ```
 
+Note that since this is deployed on Docker but services may run locally they need to point to http://localhost:4317
+
 The logger will automatically:
 - Connect to the OTEL collector
 - Send logs via OTLP gRPC
